@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "dieseldb"
+path = "src/lib.rs"
+
 [dependencies]
 csv = "1.1.6"
 rocket = { version = "0.5.0-rc.1", features=["json"]}
@@ -13,4 +17,6 @@ rocket-multipart-form-data = "0.10.0"
 serde_json = "1.0.74"
 serde_derive = "1.0.133"
 serde = "1.0.133"
-
+diesel = { version = "1.4.4", features = ["sqlite"]}
+dotenv = "0.15.0"
+chrono = "0.4.19"
