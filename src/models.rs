@@ -1,5 +1,6 @@
 use super::schema::files;
 use super::schema::users;
+use super::schema::sessions;
 use diesel::prelude::*;
 
 #[derive(Queryable,Debug)]
@@ -36,4 +37,18 @@ pub struct NewUser<'a> {
     pub username: &'a str,
     pub hashed_password: &'a str,
     pub permissions: &'a i32
+}
+
+#[derive(Queryable,Debug)]
+pub struct Session {
+    pub session_id: String,
+    pub expire_at: String,
+    pub user_id: i32
+}
+#[derive(Insertable)]
+#[table_name="sessions"]
+pub struct NewSession<'a> {
+    pub session_id: &'a str,
+    pub expire_at: &'a str,
+    pub user_id: &'a i32
 }

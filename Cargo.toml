@@ -10,7 +10,6 @@ name = "dieseldb"
 path = "src/lib.rs"
 
 [dependencies]
-csv = "1.1.6"
 rocket = { version = "0.5.0-rc.1", features=["json"]}
 multipart = "0.18.0"
 rocket-multipart-form-data = "0.10.0"
@@ -20,3 +19,6 @@ serde = "1.0.133"
 diesel = { version = "1.4.4", features = ["sqlite"]}
 dotenv = "0.15.0"
 chrono = "0.4.19"
+bcrypt = "0.10.1"
+hex-literal = "0.3.4"
+uuid = {version = "1.0.0-alpha.1" , features = ["v4"]}

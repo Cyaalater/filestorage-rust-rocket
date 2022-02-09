@@ -9,25 +9,14 @@ use rocket::http::{ContentType, Status};
 use rocket_multipart_form_data::{mime, MultipartFormDataOptions, MultipartFormData, MultipartFormDataField, Repetition};
 use rocket::serde::json::Json;
 use serde::{Serialize,Deserialize};
-use dieseldb::{db_add_file, db_establish_connection, db_find_file, db_search_file, db_show_files};
+use dieseldb::{compare_hash, db_add_file, db_add_user, db_create_session, db_establish_connection, db_find_file, db_search_file, db_search_user, db_show_files, key_get};
 use dieseldb::models::Files;
-
+use dotenv::dotenv;
+use std::env;
 #[macro_use] extern crate rocket;
 
 // TODO: Remove all csv components, functions and change them to diesel
 
-
-#[derive(Deserialize,Serialize)]
-struct DatabaseItem {
-    name : String,
-    description : String
-}
-
-#[derive(Serialize)]
-struct FullDatabase {
-    items : Vec<DatabaseItem>,
-    count : usize
-}
 
 #[derive(FromForm)]
 struct UserInput {
@@ -35,45 +24,23 @@ struct UserInput {
     path: String
 }
 
-async fn create_row_cvs(name : String, path : String) -> Result<(), Box<dyn Error>>{
-    let file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .append(true)
-        .open("src/index.csv")
-        .unwrap();
-
-    let mut wtr = csv::Writer::from_writer(file);
-    wtr.write_record(&[name,path]);
-    wtr.flush();
-
-    Ok(())
+#[derive(FromForm)]
+struct UserForm {
+    user: String,
+    password: String
 }
 
-async fn read_all_rows_cvs() -> Result<FullDatabase, Box<dyn Error>> {
-    let mut data_vec: Vec<DatabaseItem> = Vec::new();
-    let file = OpenOptions::new()
-        .read(true)
-        .open("src/index.csv")
-        .unwrap();
-    let mut count = 0;
-    let mut rdr = csv::Reader::from_reader(file);
-    for i in rdr.records(){
-        let result_1 = i?;
-        let json_stream_result = DatabaseItem {
-            name: result_1.get(0).unwrap().to_string(),
-            description: result_1.get(1).unwrap().to_string()
-        };
-        data_vec.push(json_stream_result);
-        count += 1;
-    }
-    let result = FullDatabase {
-        items : data_vec,
-        count
-    };
-    Ok(result)
+#[derive(Serialize,Deserialize)]
+struct RegisterResult {
+    success: bool,
+    data: String
 }
 
+#[derive(Serialize,Deserialize)]
+struct LoginResult {
+    success: bool,
+    session: String
+}
 
 extern crate rocket_multipart_form_data;
 
@@ -87,8 +54,11 @@ async fn bash() -> String {
     file_data
 }
 
-#[get("/download/<file_index>")]
-async fn bash_download(file_index: i32) -> Vec<u8> {
+#[get("/download/<file_index>/<secret>")]
+async fn bash_download(file_index: i32, secret: String) -> Vec<u8> {
+    if secret != key_get() {
+        return vec![4,0,4]
+    }
     let conn = db_establish_connection();
     // TODO: Add the index function to files and add here or remove it entirely and change it to search (Which is kinda weak)
     let database_data: Files = db_find_file(&conn,file_index);
@@ -111,8 +81,11 @@ async fn bash_get() -> String {
 }
 
 
-#[post("/upload", data = "<data>")]
-async fn post_file(content_type: &ContentType, data: Data<'_>) -> Status {
+#[post("/upload/<secret>", data = "<data>")]
+async fn post_file(content_type: &ContentType, secret: String, data: Data<'_>) -> Status {
+    if secret != key_get(){
+        return Status::Unauthorized
+    }
     println!("{:?}",content_type);
 
     // Set allowed form data in the post request
@@ -146,12 +119,63 @@ async fn post_file(content_type: &ContentType, data: Data<'_>) -> Status {
     Status::Ok
 }
 
+#[post("/register", data="<form>")]
+async fn register_user(form: Form<UserForm>) -> Json<RegisterResult>{
+    let db = db_establish_connection();
+    let name = form.user.clone();
+    let password = form.password.clone();
+    let query_result = db_search_user(&db,name.clone());
+    if query_result.is_ok()
+    {
+        return Json(RegisterResult {
+            success: false,
+            data: String::from("User with same name exists")
+        })
+    }
+    db_add_user(&db,name.as_str(),password.as_str());
+    Json(RegisterResult {
+        success: true,
+        data: String::from("User has been registered with low level permissions")
+    })
+}
+
+#[post("/login", data = "<form>")]
+async fn login_user(form: Form<UserForm>) -> Json<LoginResult>
+{
+    let db = db_establish_connection();
+    let name = form.user.clone();
+    let password = form.password.clone();
+    let user = db_search_user(&db,name);
+    if user.is_err()
+    {
+        return Json(LoginResult {
+            success: false,
+            session: String::from("Error")
+        });
+    }
+    let user_data = user.unwrap();
+    if compare_hash(password, user_data.hashed_password)
+    {
+        let uuid = uuid::Uuid::new_v4();
+        db_create_session(&db, &uuid.to_owned().to_string(),&user_data.id);
+        return Json(LoginResult {
+            success: true,
+            session: uuid.to_string()
+        });
+    }
+    Json(LoginResult {
+        success: false,
+        session: String::from("Error")
+    })
+}
+
+
 #[launch]
 fn rocket() -> _ {
     rocket::build()
         .mount("/",routes![bash])
         .mount("/bash",routes![bash_get,bash_download])
-        .mount("/api",routes![post_file])
+        .mount("/api",routes![post_file,register_user,login_user])
 
 }
 
