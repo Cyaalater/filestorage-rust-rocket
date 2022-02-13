@@ -9,10 +9,11 @@ use rocket::http::{ContentType, Status};
 use rocket_multipart_form_data::{mime, MultipartFormDataOptions, MultipartFormData, MultipartFormDataField, Repetition};
 use rocket::serde::json::Json;
 use serde::{Serialize,Deserialize};
-use dieseldb::{compare_hash, db_add_file, db_add_user, db_create_session, db_establish_connection, db_find_file, db_search_file, db_search_user, db_show_files, key_get};
+use dieseldb::{compare_hash, db_add_file, db_add_user, db_check_session, db_create_session, db_establish_connection, db_find_file, db_search_file, db_search_user, db_show_files, key_get};
 use dieseldb::models::Files;
 use dotenv::dotenv;
 use std::env;
+use serde::ser::{Serializer, SerializeSeq};
 #[macro_use] extern crate rocket;
 
 // TODO: Remove all csv components, functions and change them to diesel
@@ -41,6 +42,20 @@ struct LoginResult {
     success: bool,
     session: String
 }
+
+
+#[derive(Serialize)]
+struct GetResult {
+    success: bool,
+    data: Vec::<Files>
+}
+
+#[derive(FromForm)]
+struct DownloadRequest {
+    file_id : i32,
+    session_id : String
+}
+
 
 extern crate rocket_multipart_form_data;
 
@@ -81,11 +96,9 @@ async fn bash_get() -> String {
 }
 
 
-#[post("/upload/<secret>", data = "<data>")]
-async fn post_file(content_type: &ContentType, secret: String, data: Data<'_>) -> Status {
-    if secret != key_get(){
-        return Status::Unauthorized
-    }
+#[post("/upload", data = "<data>")]
+async fn post_file(content_type: &ContentType, data: Data<'_>) -> Status {
+    let db = db_establish_connection();
     println!("{:?}",content_type);
 
     // Set allowed form data in the post request
@@ -93,7 +106,8 @@ async fn post_file(content_type: &ContentType, secret: String, data: Data<'_>) -
         vec! [
             MultipartFormDataField::file("file"),
             MultipartFormDataField::text("name"),
-            MultipartFormDataField::text("description")
+            MultipartFormDataField::text("description"),
+            MultipartFormDataField::text("session")
         ]
     );
     // Pulling out the data
@@ -103,12 +117,17 @@ async fn post_file(content_type: &ContentType, secret: String, data: Data<'_>) -
     let description_text = &description_vec[0].text;
     let name_vec = multipart_form_data.texts.get("name").expect("Error parsing name");
     let name_text = &name_vec[0].text;
+    let session_vec = multipart_form_data.texts.get("session").expect("Error parsing session");
+    let session_text = &session_vec[0].text;
+    if db_check_session(&db,session_text.to_string()).is_err()
+    {
+        return Status::Unauthorized
+    }
     if let Some(mut file_fields) = uploaded_file {
         let file_field = &file_fields[0];
         // let file_data = std::fs::read(&file_field.path);
         let transfer_status = std::fs::copy(&file_field.path,format!("./Uploads/{}",&file_field.file_name.as_ref().unwrap())).is_ok();
         if transfer_status == true {
-            let db = db_establish_connection();
             db_add_file(&db,name_text,description_text,&file_field.file_name.as_ref().unwrap(),"Placeholder");
         }else {
             return Status::BadRequest
@@ -169,13 +188,52 @@ async fn login_user(form: Form<UserForm>) -> Json<LoginResult>
     })
 }
 
+#[post("/get", data = "<user_session_id>")]
+async fn get_files(user_session_id: String) -> Json<GetResult>
+{
+    let db = db_establish_connection();
+    let session_result = db_check_session(&db,user_session_id);
+    if session_result.is_err()
+    {
+        return Json(GetResult {
+            success: false,
+            data: vec![Files {
+                id: 0,
+                name: "".to_string(),
+                description: "".to_string(),
+                path: "".to_string(),
+                uploader: "".to_string(),
+                date: "".to_string()
+            }]
+        });
+    }
+    Json(GetResult {
+        success: true,
+        data: db_show_files(&db)
+    })
+
+}
+
+#[post("/download" , data = "<form>")]
+async fn download_file(form : Form<DownloadRequest>) -> Vec<u8>
+{
+    let db = db_establish_connection();
+    if db_check_session(&db,form.session_id.clone()).is_err()
+    {
+        return vec![0,0,0];
+    }
+    let database_data: Files = db_find_file(&db,form.file_id);
+    let file_name = database_data.path;
+    let file = std::fs::read(format!("./Uploads/{}",file_name)).unwrap();
+    file
+}
 
 #[launch]
 fn rocket() -> _ {
     rocket::build()
         .mount("/",routes![bash])
         .mount("/bash",routes![bash_get,bash_download])
-        .mount("/api",routes![post_file,register_user,login_user])
+        .mount("/api",routes![post_file,download_file,get_files,register_user,login_user])
 
 }
 

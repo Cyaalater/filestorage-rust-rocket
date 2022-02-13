@@ -2,8 +2,9 @@ use super::schema::files;
 use super::schema::users;
 use super::schema::sessions;
 use diesel::prelude::*;
+use serde_derive::Serialize;
 
-#[derive(Queryable,Debug)]
+#[derive(Queryable,Debug,Serialize)]
 pub struct Files {
     pub id: i32,
     pub name: String,

@@ -130,7 +130,7 @@ pub fn db_check_session(conn: &SqliteConnection, user_session_id: String) -> Res
 
     let session_open = session.as_ref().unwrap();
 
-    if session_open.expire_at.parse::<DateTime<Local>>().unwrap().ge(&Local::now())
+    if session_open.expire_at.parse::<DateTime<Local>>().unwrap().le(&Local::now())
     {
         println!("EXPIRED SESSION");
         diesel::delete(sessions.find(user_session_id)).execute(conn);
