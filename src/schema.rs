@@ -10,6 +10,14 @@ table! {
 }
 
 table! {
+    sessions (session_id) {
+        session_id -> Text,
+        expire_at -> Text,
+        user_id -> Integer,
+    }
+}
+
+table! {
     users (id) {
         id -> Integer,
         username -> Text,
@@ -20,5 +28,6 @@ table! {
 
 allow_tables_to_appear_in_same_query!(
     files,
+    sessions,
     users,
 );
